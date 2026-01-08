@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Securely anonymize CSV columns with hash-based encryption">
+    <title>CSV Anonymizer - Secure Data Protection</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-gradient"></div>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                    <path d="M2 17l10 5 10-5"/>
+                    <path d="M2 12l10 5 10-5"/>
+                </svg>
+                <h1>CSV Anonymizer</h1>
+            </div>
+            <p class="tagline">Secure your data with hash-based anonymization</p>
+        </header>
+
+        <main class="main-content">
+            <!-- Step 1: Upload -->
+            <section id="step-upload" class="step-card active">
+                <div class="step-header">
+                    <span class="step-number">1</span>
+                    <h2>Upload Your CSV</h2>
+                </div>
+                <div class="upload-zone" id="upload-zone">
+                    <input type="file" id="file-input" accept=".csv" hidden>
+                    <div class="upload-content">
+                        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        <p class="upload-text">Drag & drop your CSV file here</p>
+                        <p class="upload-subtext">or click to browse</p>
+                    </div>
+                </div>
+                <div id="file-info" class="file-info hidden">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                    <span id="file-name"></span>
+                    <span id="row-count" class="row-count"></span>
+                </div>
+            </section>
+
+            <!-- Step 2: Select Columns -->
+            <section id="step-columns" class="step-card hidden">
+                <div class="step-header">
+                    <span class="step-number">2</span>
+                    <h2>Select Columns to Anonymize</h2>
+                </div>
+                <div class="columns-container" id="columns-container">
+                    <!-- Checkboxes will be inserted here dynamically -->
+                </div>
+                <div class="selection-actions">
+                    <button type="button" class="btn-secondary" id="select-all">Select All</button>
+                    <button type="button" class="btn-secondary" id="deselect-all">Deselect All</button>
+                </div>
+            </section>
+
+            <!-- Step 3: Enter Secret Key -->
+            <section id="step-key" class="step-card hidden">
+                <div class="step-header">
+                    <span class="step-number">3</span>
+                    <h2>Enter Your Secret Key</h2>
+                </div>
+                <p class="step-description">This key will be used to hash your data. The same key will always produce the same hash for identical values.</p>
+                <div class="input-group">
+                    <input type="password" id="secret-key" placeholder="Enter your secret key..." autocomplete="off">
+                    <button type="button" class="toggle-visibility" id="toggle-key">
+                        <svg class="eye-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Step 4: Anonymize -->
+            <section id="step-anonymize" class="step-card hidden">
+                <div class="step-header">
+                    <span class="step-number">4</span>
+                    <h2>Anonymize Your Data</h2>
+                </div>
+                <div class="summary" id="summary">
+                    <!-- Summary will be inserted here -->
+                </div>
+                <button type="button" class="btn-primary" id="anonymize-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    Anonymize Data
+                </button>
+            </section>
+
+            <!-- Step 5: Download -->
+            <section id="step-download" class="step-card hidden">
+                <div class="success-animation">
+                    <svg class="checkmark" viewBox="0 0 52 52">
+                        <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                        <path class="checkmark-check" fill="none" d="m14.1 27.2 7.1 7.2 16.7-16.8"/>
+                    </svg>
+                </div>
+                <h2 class="success-title">Anonymization Complete!</h2>
+                <p class="success-message" id="success-message"></p>
+                <button type="button" class="btn-primary btn-download" id="download-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Download Anonymized CSV
+                </button>
+                <button type="button" class="btn-secondary btn-reset" id="reset-btn">
+                    Start Over
+                </button>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>Your data is processed locally and never stored permanently.</p>
+        </footer>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p id="loading-text">Processing...</p>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>

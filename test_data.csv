@@ -1,0 +1,6 @@
+name,email,phone,department,salary
+John Doe,john.doe@example.com,555-123-4567,Engineering,85000
+Jane Smith,jane.smith@example.com,555-234-5678,Marketing,72000
+Bob Johnson,bob.j@example.com,555-345-6789,Sales,68000
+Alice Williams,alice.w@example.com,555-456-7890,HR,75000
+Charlie Brown,charlie.b@example.com,555-567-8901,Engineering,92000
