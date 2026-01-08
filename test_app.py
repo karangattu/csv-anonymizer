@@ -286,3 +286,74 @@ class TestCleanupRoute:
         response = client.post('/cleanup/nonexistent_id')
         assert response.status_code == 200
         assert response.get_json()['success'] is True
+
+
+class TestRobustCSVHandling:
+    """Tests for robust CSV handling features."""
+
+    def test_semicolon_delimiter(self, client):
+        """Test that semicolon-delimited CSVs are handled."""
+        csv_data = b"name;email;age\nJohn;john@test.com;30\nJane;jane@test.com;25"
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(csv_data), 'semicolon.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert json_data['columns'] == ['name', 'email', 'age']
+        assert json_data['delimiter'] == 'semicolon'
+
+    def test_tab_delimiter(self, client):
+        """Test that tab-delimited CSVs are handled."""
+        csv_data = b"name\temail\tage\nJohn\tjohn@test.com\t30"
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(csv_data), 'tabs.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert json_data['columns'] == ['name', 'email', 'age']
+        assert json_data['delimiter'] == 'tab'
+
+    def test_empty_file(self, client):
+        """Test that empty files return an error."""
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(b''), 'empty.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 400
+        assert b'empty' in response.data.lower()
+
+    def test_header_only_file(self, client):
+        """Test that header-only files return an error."""
+        csv_data = b"name,email,age\n"
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(csv_data), 'header_only.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 400
+        assert b'no data' in response.data.lower()
+
+    def test_utf8_bom(self, client):
+        """Test that UTF-8 BOM is stripped from column names."""
+        # UTF-8 BOM + CSV content
+        csv_data = b'\xef\xbb\xbfname,email,age\nJohn,john@test.com,30'
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(csv_data), 'bom.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        # BOM should be stripped from column name
+        assert json_data['columns'][0] == 'name'
+
+    def test_encoding_detection_returns_info(self, client):
+        """Test that encoding info is returned."""
+        csv_data = b"name,email\nJohn,john@test.com"
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(csv_data), 'test.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert 'encoding' in json_data
+
+    def test_whitespace_only_values_not_anonymized(self):
+        """Test that whitespace-only values are not anonymized."""
+        result = anonymize_value("   ", "secret_key")
+        assert result == "   "
+

@@ -1,9 +1,11 @@
 import os
+import csv
 import hmac
 import hashlib
 import uuid
 from flask import Flask, render_template, request, jsonify, send_file
 import pandas as pd
+import chardet
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -23,9 +25,61 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 file_storage = {}
 
 
+def detect_encoding(filepath):
+    """Detect file encoding using chardet."""
+    with open(filepath, 'rb') as f:
+        # Read first 10KB for detection
+        raw_data = f.read(10240)
+    result = chardet.detect(raw_data)
+    encoding = result.get('encoding', 'utf-8')
+    # Handle common encoding aliases
+    if encoding and encoding.lower() in ['ascii', 'iso-8859-1', 'latin-1']:
+        return encoding
+    return encoding or 'utf-8'
+
+
+def detect_delimiter(filepath, encoding):
+    """Detect CSV delimiter using csv.Sniffer."""
+    try:
+        with open(filepath, 'r', encoding=encoding, errors='replace') as f:
+            # Read first 8KB for sniffing
+            sample = f.read(8192)
+        sniffer = csv.Sniffer()
+        dialect = sniffer.sniff(sample, delimiters=',;\t|')
+        return dialect.delimiter
+    except csv.Error:
+        # Default to comma if detection fails
+        return ','
+
+
+def read_csv_robust(filepath):
+    """Read CSV with robust encoding and delimiter detection."""
+    # Detect encoding
+    encoding = detect_encoding(filepath)
+    
+    # Detect delimiter
+    delimiter = detect_delimiter(filepath, encoding)
+    
+    # Read CSV with detected parameters
+    df = pd.read_csv(
+        filepath,
+        encoding=encoding,
+        sep=delimiter,
+        on_bad_lines='warn',  # Skip malformed rows
+        encoding_errors='replace',  # Replace undecodable chars
+        skipinitialspace=True,  # Handle spaces after delimiter
+        dtype=str,  # Read all columns as strings initially
+    )
+    
+    # Strip BOM from column names if present
+    df.columns = [col.lstrip('\ufeff').strip() for col in df.columns]
+    
+    return df, encoding, delimiter
+
+
 def anonymize_value(value, secret_key):
     """Anonymize a single value using HMAC-SHA256."""
-    if pd.isna(value) or value == '':
+    if pd.isna(value) or value == '' or str(value).strip() == '':
         return value
     return hmac.new(
         secret_key.encode(),
@@ -62,23 +116,47 @@ def upload_file():
         # Save the file
         file.save(filepath)
         
-        # Read CSV and get column names
-        df = pd.read_csv(filepath)
+        # Validate file is not empty
+        if os.path.getsize(filepath) == 0:
+            os.remove(filepath)
+            return jsonify({'error': 'File is empty'}), 400
+        
+        # Read CSV with robust detection
+        df, encoding, delimiter = read_csv_robust(filepath)
+        
+        # Validate we have data
+        if df.empty:
+            os.remove(filepath)
+            return jsonify({'error': 'CSV file has no data rows'}), 400
+        
+        if len(df.columns) == 0:
+            os.remove(filepath)
+            return jsonify({'error': 'CSV file has no columns'}), 400
+        
         columns = df.columns.tolist()
         
-        # Store file info
+        # Store file info including detected parameters
         file_storage[file_id] = {
             'filepath': filepath,
             'original_filename': filename,
-            'columns': columns
+            'columns': columns,
+            'encoding': encoding,
+            'delimiter': delimiter
         }
         
         return jsonify({
             'file_id': file_id,
             'columns': columns,
-            'row_count': len(df)
+            'row_count': len(df),
+            'encoding': encoding,
+            'delimiter': 'comma' if delimiter == ',' else 
+                        'semicolon' if delimiter == ';' else
+                        'tab' if delimiter == '\t' else
+                        'pipe' if delimiter == '|' else delimiter
         })
     
+    except pd.errors.EmptyDataError:
+        return jsonify({'error': 'CSV file is empty or invalid'}), 400
     except Exception as e:
         return jsonify({'error': f'Error processing file: {str(e)}'}), 500
 
@@ -106,7 +184,19 @@ def anonymize():
     
     try:
         file_info = file_storage[file_id]
-        df = pd.read_csv(file_info['filepath'])
+        
+        # Read with same parameters as initial upload
+        df = pd.read_csv(
+            file_info['filepath'],
+            encoding=file_info.get('encoding', 'utf-8'),
+            sep=file_info.get('delimiter', ','),
+            on_bad_lines='warn',
+            encoding_errors='replace',
+            dtype=str
+        )
+        
+        # Strip BOM from column names if present
+        df.columns = [col.lstrip('\ufeff').strip() for col in df.columns]
         
         # Anonymize selected columns
         for col in columns_to_anonymize:
@@ -125,7 +215,9 @@ def anonymize():
             app.config['UPLOAD_FOLDER'],
             f"{file_id}_{anonymized_filename}"
         )
-        df.to_csv(anonymized_filepath, index=False)
+        
+        # Save with UTF-8 encoding and comma delimiter for consistency
+        df.to_csv(anonymized_filepath, index=False, encoding='utf-8')
         
         # Update storage with anonymized file info
         file_storage[file_id]['anonymized_filepath'] = anonymized_filepath
