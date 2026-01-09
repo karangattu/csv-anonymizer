@@ -1,9 +1,11 @@
 """Unit tests for the CSV Anonymizer application."""
 import os
 import io
+import csv
 import tempfile
 import pytest
-from app import app, anonymize_value, file_storage
+from app import app, anonymize_value, file_storage, detect_delimiter, \
+    detect_encoding, read_csv_robust
 
 
 @pytest.fixture
@@ -356,4 +358,279 @@ class TestRobustCSVHandling:
         """Test that whitespace-only values are not anonymized."""
         result = anonymize_value("   ", "secret_key")
         assert result == "   "
+
+
+class TestDelimiterDetection:
+    """Tests for delimiter detection functionality."""
+
+    def test_detect_comma_delimiter(self):
+        """Test detection of comma delimiter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False) as f:
+            f.write("name,email,age\nJohn,john@test.com,30")
+            temp_path = f.name
+
+        try:
+            delimiter = detect_delimiter(temp_path, 'utf-8')
+            assert delimiter == ','
+        finally:
+            os.unlink(temp_path)
+
+    def test_detect_semicolon_delimiter(self):
+        """Test detection of semicolon delimiter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False) as f:
+            f.write("name;email;age\nJohn;john@test.com;30")
+            temp_path = f.name
+
+        try:
+            delimiter = detect_delimiter(temp_path, 'utf-8')
+            assert delimiter == ';'
+        finally:
+            os.unlink(temp_path)
+
+    def test_detect_tab_delimiter(self):
+        """Test detection of tab delimiter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False) as f:
+            f.write("name\temail\tage\nJohn\tjohn@test.com\t30")
+            temp_path = f.name
+
+        try:
+            delimiter = detect_delimiter(temp_path, 'utf-8')
+            assert delimiter == '\t'
+        finally:
+            os.unlink(temp_path)
+
+    def test_detect_quoted_fields_with_pipes(self):
+        """Test that pipes in quoted fields don't confuse delimiter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False,
+                                         encoding='utf-8') as f:
+            f.write('"name","city","note"\n')
+            f.write('"John","SF","||note||"\n')
+            f.write('"Jane","LA","||text||"\n')
+            temp_path = f.name
+
+        try:
+            delimiter = detect_delimiter(temp_path, 'utf-8')
+            # Should detect comma, not pipe
+            assert delimiter == ','
+        finally:
+            os.unlink(temp_path)
+
+    def test_detect_quoted_fields_with_semicolons(self):
+        """Test semicolon-delimited with quoted fields."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False,
+                                         encoding='utf-8') as f:
+            f.write('"name";"email";"note"\n')
+            f.write('"John";"john@test.com";"note;here"\n')
+            temp_path = f.name
+
+        try:
+            delimiter = detect_delimiter(temp_path, 'utf-8')
+            assert delimiter == ';'
+        finally:
+            os.unlink(temp_path)
+
+    def test_delimiter_defaults_to_comma_on_error(self):
+        """Test that comma is default when detection fails."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False) as f:
+            f.write("singlecolumn")
+            temp_path = f.name
+
+        try:
+            delimiter = detect_delimiter(temp_path, 'utf-8')
+            assert delimiter == ','
+        finally:
+            os.unlink(temp_path)
+
+
+class TestEncodingDetection:
+    """Tests for encoding detection functionality."""
+
+    def test_detect_utf8_encoding(self):
+        """Test detection of UTF-8 encoding."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False,
+                                         encoding='utf-8') as f:
+            f.write("name,email\nJohn,john@test.com")
+            temp_path = f.name
+
+        try:
+            encoding = detect_encoding(temp_path)
+            assert encoding is not None
+            assert isinstance(encoding, str)
+        finally:
+            os.unlink(temp_path)
+
+    def test_detect_utf8_with_bom(self):
+        """Test detection of UTF-8 with BOM."""
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv',
+                                         delete=False) as f:
+            f.write(b'\xef\xbb\xbfname,email\nJohn,john@test.com')
+            temp_path = f.name
+
+        try:
+            encoding = detect_encoding(temp_path)
+            assert encoding is not None
+        finally:
+            os.unlink(temp_path)
+
+
+class TestReadCSVRobust:
+    """Tests for robust CSV reading functionality."""
+
+    def test_read_simple_csv(self):
+        """Test reading simple CSV file."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False,
+                                         encoding='utf-8') as f:
+            f.write("name,email,age\n")
+            f.write("John,john@test.com,30\n")
+            f.write("Jane,jane@test.com,25\n")
+            temp_path = f.name
+
+        try:
+            df, encoding, delimiter = read_csv_robust(temp_path)
+            assert len(df.columns) == 3
+            assert df.columns.tolist() == ['name', 'email', 'age']
+            assert len(df) == 2
+            assert df.iloc[0]['name'] == 'John'
+        finally:
+            os.unlink(temp_path)
+
+    def test_read_csv_with_bom(self):
+        """Test reading CSV with UTF-8 BOM."""
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv',
+                                         delete=False) as f:
+            f.write(b'\xef\xbb\xbfname,email,age\n')
+            f.write(b'John,john@test.com,30\n')
+            temp_path = f.name
+
+        try:
+            df, encoding, delimiter = read_csv_robust(temp_path)
+            # BOM should be stripped from column names
+            assert df.columns[0] == 'name'
+            assert not df.columns[0].startswith('\ufeff')
+        finally:
+            os.unlink(temp_path)
+
+    def test_read_quoted_csv(self):
+        """Test reading CSV with quoted fields."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False,
+                                         encoding='utf-8') as f:
+            f.write('"name","email","age"\n')
+            f.write('"John Doe","john@test.com","30"\n')
+            f.write('"Jane Smith","jane@test.com","25"\n')
+            temp_path = f.name
+
+        try:
+            df, encoding, delimiter = read_csv_robust(temp_path)
+            assert len(df.columns) == 3
+            assert df.columns.tolist() == ['name', 'email', 'age']
+            assert df.iloc[0]['name'] == 'John Doe'
+        finally:
+            os.unlink(temp_path)
+
+    def test_read_quoted_csv_with_pipes_in_data(self):
+        """Test reading quoted CSV where data contains pipes."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False,
+                                         encoding='utf-8') as f:
+            f.write('"Guest_ID","City","Note"\n')
+            f.write('"M001","SF","||City: SF||"\n')
+            f.write('"M002","LA","||City: LA||"\n')
+            temp_path = f.name
+
+        try:
+            df, encoding, delimiter = read_csv_robust(temp_path)
+            assert len(df.columns) == 3
+            assert df.columns.tolist() == ['Guest_ID', 'City', 'Note']
+            # Verify pipes are in the data, not used as delimiter
+            assert '||City: SF||' in df.iloc[0]['Note']
+        finally:
+            os.unlink(temp_path)
+
+    def test_read_csv_semicolon_delimiter(self):
+        """Test reading CSV with semicolon delimiter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False,
+                                         encoding='utf-8') as f:
+            f.write('name;email;age\n')
+            f.write('John;john@test.com;30\n')
+            temp_path = f.name
+
+        try:
+            df, encoding, delimiter = read_csv_robust(temp_path)
+            assert delimiter == ';'
+            assert len(df.columns) == 3
+            assert df.columns.tolist() == ['name', 'email', 'age']
+        finally:
+            os.unlink(temp_path)
+
+    def test_read_csv_with_spaces_after_delimiter(self):
+        """Test that spaces after delimiters are handled."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv',
+                                         delete=False,
+                                         encoding='utf-8') as f:
+            f.write('name, email, age\n')
+            f.write('John, john@test.com, 30\n')
+            temp_path = f.name
+
+        try:
+            df, encoding, delimiter = read_csv_robust(temp_path)
+            # Columns should have spaces stripped
+            assert df.columns[0].strip() == 'name'
+            assert df.columns[1].strip() == 'email'
+        finally:
+            os.unlink(temp_path)
+
+
+class TestUploadRouteWithQuotedCSV:
+    """Tests for upload route with quoted CSV files."""
+
+    def test_upload_quoted_csv(self, client):
+        """Test upload of quoted CSV file."""
+        csv_data = b'"name","email","age"\n' \
+                   b'"John Doe","john@test.com","30"\n'
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(csv_data), 'quoted.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        assert json_data['columns'] == ['name', 'email', 'age']
+        assert json_data['row_count'] == 1
+
+    def test_upload_quoted_csv_with_pipes_in_data(self, client):
+        """Test upload of quoted CSV with pipes in field values."""
+        csv_data = b'"Guest_ID","City","Note"\n' \
+                   b'"M001","SF","||City: SF||"\n' \
+                   b'"M002","LA","||City: LA||"\n'
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(csv_data), 'quoted_pipes.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        # Should have 3 columns, not treating pipes as delimiter
+        assert json_data['columns'] == ['Guest_ID', 'City', 'Note']
+        assert json_data['row_count'] == 2
+
+    def test_upload_utf8_bom_quoted_csv(self, client):
+        """Test upload of UTF-8 BOM quoted CSV."""
+        csv_data = b'\xef\xbb\xbf' \
+                   b'"name","email","age"\n' \
+                   b'"John","john@test.com","30"\n'
+        response = client.post('/upload', data={
+            'file': (io.BytesIO(csv_data), 'bom_quoted.csv')
+        }, content_type='multipart/form-data')
+        assert response.status_code == 200
+        json_data = response.get_json()
+        # BOM and quotes should be stripped
+        assert json_data['columns'] == ['name', 'email', 'age']
+        assert json_data['row_count'] == 1
+
 

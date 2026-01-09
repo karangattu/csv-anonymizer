@@ -39,15 +39,40 @@ def detect_encoding(filepath):
 
 
 def detect_delimiter(filepath, encoding):
-    """Detect CSV delimiter using csv.Sniffer."""
+    """Detect CSV delimiter using csv.Sniffer with validation."""
+    delimiters_to_try = [',', ';', '\t', '|']
+    
     try:
         with open(filepath, 'r', encoding=encoding, errors='replace') as f:
             # Read first 8KB for sniffing
             sample = f.read(8192)
-        sniffer = csv.Sniffer()
-        dialect = sniffer.sniff(sample, delimiters=',;\t|')
-        return dialect.delimiter
-    except csv.Error:
+        
+        # Get the first line to count columns with each delimiter
+        first_line = sample.split('\n')[0] if '\n' in sample else sample
+        
+        # Try each delimiter and return the one that gives most columns
+        # (quoted fields will appear as single columns)
+        best_delimiter = ','
+        max_columns = 1
+        
+        for delim in delimiters_to_try:
+            try:
+                # Use csv.reader to properly handle quoted fields
+                reader = csv.reader([first_line], delimiter=delim)
+                columns = list(reader)[0]
+                # Count non-empty columns
+                col_count = len([c for c in columns if c.strip()])
+                
+                # Prefer the delimiter that gives more columns (comma usually gives most)
+                # But if comma gives only 1 column, try others
+                if col_count > max_columns:
+                    max_columns = col_count
+                    best_delimiter = delim
+            except Exception:
+                continue
+        
+        return best_delimiter
+    except Exception:
         # Default to comma if detection fails
         return ','
 
