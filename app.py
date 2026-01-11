@@ -3,7 +3,7 @@ import csv
 import hmac
 import hashlib
 import uuid
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, after_this_request
 import pandas as pd
 import chardet
 from werkzeug.utils import secure_filename
@@ -260,15 +260,34 @@ def anonymize():
 
 @app.route('/download/<file_id>')
 def download(file_id):
-    """Download the anonymized CSV file."""
+    """Download the anonymized CSV file and clean up files afterward."""
     if file_id not in file_storage:
         return jsonify({'error': 'Invalid or expired file ID'}), 400
-    
+
     file_info = file_storage[file_id]
-    
+
     if 'anonymized_filepath' not in file_info:
         return jsonify({'error': 'File has not been anonymized yet'}), 400
-    
+
+    @after_this_request
+    def cleanup_files(response):
+        """Delete original and anonymized files after download."""
+        try:
+            # Remove original file
+            if os.path.exists(file_info.get('filepath', '')):
+                os.remove(file_info['filepath'])
+
+            # Remove anonymized file
+            if os.path.exists(file_info.get('anonymized_filepath', '')):
+                os.remove(file_info['anonymized_filepath'])
+
+            # Remove from storage
+            if file_id in file_storage:
+                del file_storage[file_id]
+        except Exception:
+            pass  # Silently ignore cleanup errors
+        return response
+
     return send_file(
         file_info['anonymized_filepath'],
         as_attachment=True,
