@@ -42,8 +42,3 @@ pytest test_app.py -v
 - Flask
 - Pandas
 - HMAC-SHA256 for anonymization
-
-
-## Live version of the app
-
-A live version of the app is available at https://csv-anonymizer-dwk5.onrender.com/
